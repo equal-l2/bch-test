@@ -1,53 +1,51 @@
-// encode BCH(15, 11)
-fn bch_encode(input: u16) -> u16 {
-    assert!(input < 1 << 11);
-    let divider = 0b10011;
+// 長さlenで全てのビットが立ったビット列を生成する
+fn gen_mask(len: u8) -> u16 {
+    let mut ret = 0;
+    for _ in 0..len {
+        ret = (ret << 1) + 1;
+    }
+    ret
+}
 
-    let mut dividend = input << 4;
+// GF(2)上での剰余
+fn gf2_mod(dividend: u16, divisor: u16, divisor_digits: u8) -> u16 {
+    let digits = divisor_digits - 1;
+    let mut dividend = dividend;
+    let mask_arch = gen_mask(divisor_digits);
 
-    for i in (4..15).rev() {
-        if (dividend & (1 << i)) != 0 {
-            // calculate xor with 0b10011
-            let mask = 0b11111 << (i - 4);
-            let value = (dividend & mask) >> (i - 4);
-            let result = value ^ divider;
+    for i in (digits..16).rev() {
+        // 上から1ビットずつずらしながら見ていく
+        if (dividend & (1 << i)) != 0 { // 最上位ビットが立っていれば
+            let i_pad = i - digits;
+            // 今見ている値と割る数のXORをとる
+            let mask = mask_arch << i_pad;
+            let value = (dividend & mask) >> i_pad;
+            let result = value ^ divisor;
 
-            dividend &= !mask; // clear the area of interest
-            dividend |= result << (i - 4); // overwrite with the result
+            dividend &= !mask; // 今見ているところをクリアする
+            dividend |= result << i_pad; // 計算で得られた余りで上書き
         }
     }
-
-    // merge code and check bits
-    (input << 4) | dividend
+    dividend
 }
 
-// get BCH(15,11) syndrome
-fn bch_decode(input: u16) -> u16 {
-    assert!(input < 1 << 15);
-    let mut r4 = 0;
-    let mut r3 = 0;
-    let mut r2 = 0;
-    let mut r1 = 0;
+// 情報ビット列を受け取り、BCH(15, 11)にエンコードする
+fn bch_encode(input: u16, gen: u16, gen_len: u8) -> u16 {
+    let shifted = input << (gen_len - 1); // 生成多項式分シフトしておく
+    let checksum = gf2_mod(shifted, gen, gen_len); // 生成多項式から得られるチェックサム
 
-    for i in (0..15).rev() {
-        let in_bit = (input >> i) & 1;
-        let r4_next = in_bit ^ r1;
-        let r3_next = r1 ^ r4;
-        let r2_next = r3;
-        let r1_next = r2;
-        r4 = r4_next;
-        r3 = r3_next;
-        r2 = r2_next;
-        r1 = r1_next;
-    }
-
-    (r4 << 3) & (r3 << 2) & (r2 << 1) & r1
+    shifted ^ checksum
 }
 
-// get hamming distance between in1 and in2
+// 符号ビット列からBCH(15, 11)のシンドロームを得る
+fn bch_decode(input: u16, gen: u16, gen_len:u8) -> u16 {
+    gf2_mod(input, gen, gen_len)
+}
+
+// in1とin2のハミング距離を計算する
 fn hamming_dist(in1: u16, in2: u16) -> u8 {
     let mut ret = 0;
-    for i in 0..16 {
+    for i in 0..16 { // 各ビットごとに比較
         let mask = 1 << i;
         if (in1 & mask) != (in2 & mask) {
             ret += 1;
@@ -57,11 +55,18 @@ fn hamming_dist(in1: u16, in2: u16) -> u8 {
 }
 
 fn main() {
-    // generate codes
-    let codes: Vec<_> = (0b0000_0000_000..=0b1111_1111_111)
-        .map(bch_encode)
-        .collect();
+    let gen = 0b10011; // 生成多項式
+    let gen_len = 5; // 生成多項式のビット数
 
+    // 全情報ビットパターンについて符号を生成
+    let mut codes = Vec::with_capacity(1<<11);
+    for i in 0b00000_00000_0..=0b11111_11111_1 {
+        let code = bch_encode(i, gen, gen_len); // 符号生成
+        assert_eq!(bch_decode(code, gen, gen_len), 0); // シンドロームが0か確認
+        codes.push(code); // codesに格納
+    }
+
+    // 相異なる符号間のハミング距離を計算
     let mut dists = std::collections::BTreeMap::new();
     for i in 0..codes.len() {
         for j in (i + 1)..codes.len() {
@@ -75,7 +80,8 @@ fn main() {
         }
     }
 
+    // 計算結果を出力
     for (k, v) in dists {
-        println!("{} {}", k, v);
+        println!("{} : {}", k, v);
     }
 }
