@@ -32,15 +32,15 @@ fn gf2_mod(dividend: u16, divisor: u16, divisor_digits: u8) -> u16 {
     dividend
 }
 
-// 情報ビット列を受け取り、BCH(15, 11)にエンコードする
+// 情報ビット列を符号化する
 fn bch_encode(input: u16, gen: u16, gen_len: u8) -> u16 {
-    let shifted = input << (gen_len - 1); // 生成多項式分シフトしておく
+    let shifted = input << (gen_len - 1); // チェックサムの分シフトしておく
     let checksum = gf2_mod(shifted, gen, gen_len); // 生成多項式から得られるチェックサム
 
     shifted ^ checksum
 }
 
-// 符号ビット列からBCH(15, 11)のシンドロームを得る
+// 符号ビット列からシンドロームを得る
 fn bch_decode(input: u16, gen: u16, gen_len: u8) -> u16 {
     gf2_mod(input, gen, gen_len)
 }
@@ -87,7 +87,7 @@ fn main() {
     for i in 0..codes.len() {
         for j in (i + 1)..codes.len() {
             let dist = hamming_dist(codes[i], codes[j]);
-            *dists.entry(dist).or_insert(1) += 1;
+            *dists.entry(dist).or_insert(0) += 1;
         }
     }
 
